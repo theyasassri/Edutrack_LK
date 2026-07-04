@@ -1,4 +1,6 @@
+import crypto from 'node:crypto';
 import fastify, { FastifyInstance } from 'fastify';
+import { prisma } from './lib/prisma';
 
 type ClassItem = {
   id: string;
@@ -55,6 +57,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     { id: 'class-1', name: 'Grade 10', section: 'A', teacherName: 'Mr. Silva' },
   ];
 
+  const users = [
+    {
+      id: 'user-1',
+      email: 'admin@edutrack.lk',
+      password: 'password123',
+      role: 'admin',
+      name: 'Admin User',
+    },
+  ];
+
   const students: StudentItem[] = [
     { id: 'student-1', name: 'Nimal Perera', age: 16, email: 'nimal@example.com', phone: '0771234567' },
   ];
@@ -70,7 +82,70 @@ export async function buildApp(): Promise<FastifyInstance> {
     timestamp: new Date().toISOString(),
   }));
 
+  app.post('/auth/login', async (request, reply) => {
+    const body = request.body as { email?: string; password?: string };
+
+    const user = users.find((candidate) => candidate.email === body.email);
+    if (!user || user.password !== body.password) {
+      reply.code(401);
+      return { error: 'invalid credentials' };
+    }
+
+    const accessToken = crypto.randomBytes(16).toString('hex');
+    const refreshToken = crypto.randomBytes(24).toString('hex');
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+      },
+    };
+  });
+
+  app.get('/auth/me', async (request, reply) => {
+    const authorization = request.headers.authorization;
+    if (!authorization || !authorization.startsWith('Bearer ')) {
+      reply.code(401);
+      return { error: 'missing token' };
+    }
+
+    const token = authorization.replace('Bearer ', '');
+    const user = users.find((candidate) => candidate.email === 'admin@edutrack.lk');
+
+    if (!token || !user) {
+      reply.code(401);
+      return { error: 'invalid token' };
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+    };
+  });
+
   app.get('/classes', async () => classes);
+
+  app.get('/classes/:id/students', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const selectedClass = classes.find((entry) => entry.id === id);
+
+    if (!selectedClass) {
+      reply.code(404);
+      return { error: 'class not found' };
+    }
+
+    return students.map((student) => ({
+      id: student.id,
+      name: student.name,
+      email: student.email,
+    }));
+  });
 
   app.post('/classes', async (request, reply) => {
     const body = request.body as {
@@ -96,7 +171,36 @@ export async function buildApp(): Promise<FastifyInstance> {
     return createdClass;
   });
 
-  app.get('/students', async () => students);
+  app.get('/students', async () => {
+    try {
+      const studentsFromDb = await prisma.student.findMany({
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return studentsFromDb.map((student) => ({
+        id: student.id,
+        name: student.name,
+        age: student.age,
+        email: student.email,
+        phone: student.phone ?? '',
+      }));
+    } catch (error) {
+      console.warn('Falling back to in-memory students:', error);
+      return students;
+    }
+  });
+
+  app.get('/students/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const student = students.find((entry) => entry.id === id);
+
+    if (!student) {
+      reply.code(404);
+      return { error: 'student not found' };
+    }
+
+    return student;
+  });
 
   app.post('/students', async (request, reply) => {
     const body = request.body as {
@@ -111,17 +215,38 @@ export async function buildApp(): Promise<FastifyInstance> {
       return { error: 'name, age and email are required' };
     }
 
-    const createdStudent: StudentItem = {
-      id: `student-${students.length + 1}`,
-      name: body.name,
-      age: body.age,
-      email: body.email,
-      phone: body.phone ?? '',
-    };
+    try {
+      const createdStudent = await prisma.student.create({
+        data: {
+          name: body.name,
+          age: body.age,
+          email: body.email,
+          phone: body.phone ?? '',
+        },
+      });
 
-    students.push(createdStudent);
-    reply.code(201);
-    return createdStudent;
+      reply.code(201);
+      return {
+        id: createdStudent.id,
+        name: createdStudent.name,
+        age: createdStudent.age,
+        email: createdStudent.email,
+        phone: createdStudent.phone ?? '',
+      };
+    } catch (error) {
+      console.warn('Falling back to in-memory student creation:', error);
+      const createdStudent: StudentItem = {
+        id: `student-${students.length + 1}`,
+        name: body.name,
+        age: body.age,
+        email: body.email,
+        phone: body.phone ?? '',
+      };
+
+      students.push(createdStudent);
+      reply.code(201);
+      return createdStudent;
+    }
   });
 
   app.post('/enrollments', async (request, reply) => {
