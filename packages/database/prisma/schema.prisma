@@ -1,6 +1,5 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -23,6 +22,9 @@ model Class {
   section     String
   teacherName String?
   enrollments Enrollment[]
+  attendances Attendance[]
+  feePayments FeePayment[]
+  results     Result[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -34,6 +36,9 @@ model Student {
   email       String       @unique
   phone       String?
   enrollments Enrollment[]
+  attendanceRecords AttendanceRecord[]
+  feePayments FeePayment[]
+  results Result[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -47,4 +52,51 @@ model Enrollment {
   class     Class    @relation(fields: [classId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Attendance {
+  id          String  @id @default(cuid())
+  classId     String
+  date        String //Storing as ISO string or YYYY-MM-DD
+  class       Class   @relation(fields: [classId], references: [id])
+  records     AttendanceRecord[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([classId, date]) //Ensure only one attendance list exists per class per day
+}
+
+model AttendanceRecord {
+  id            String @id @default(cuid())
+  attendanceId  String
+  studentId     String
+  status        String //"present"|"absent"|"late"
+  attendance    Attendance @relation(fields:[attendanceId], references: [id], onDelete: Cascade)
+  student       Student   @relation(fields: [studentId], references: [id])
+}
+
+model FeePayment {
+  id        String @id @default(cuid())
+  studentId String
+  classId   String
+  amount    Float
+  month     String // e.g.. , "January"
+  status    String  @default("paid") //"paid" | "pending"
+  student   Student @relation(fields: [studentId], references: [id])
+  class     Class   @relation(fields:[classId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Result {
+  id        String @id @default(cuid())
+  studentId String
+  classId   String
+  subject   String
+  marks     Int
+  student   Student @relation(fields: [studentId], references : [id])
+  class     Class @relation(fields: [classId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime @updatedAt
+
 }

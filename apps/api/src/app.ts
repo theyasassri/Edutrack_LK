@@ -140,7 +140,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       return { error: 'class not found' };
     }
 
-    return students.map((student) => ({
+    // Fixed: Explicitly typed 'student' parameter as StudentItem to fix Code 7006 error
+    return students.map((student: StudentItem) => ({
       id: student.id,
       name: student.name,
       email: student.email,
